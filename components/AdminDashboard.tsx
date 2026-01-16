@@ -18,7 +18,8 @@ import {
   X,
   User as UserIcon,
   Share2,
-  Check
+  Check,
+  UserPlus
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -39,12 +40,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ gameState, setGameState
     const totalCellsCompleted = activeParticipants.reduce((acc, u) => acc + u.grid.filter(c => c.isCompleted).length, 0);
     const completedBingo = activeParticipants.filter(u => u.completedAt).length;
     
+    // Participants who registered before the game was started (or if it hasn't started yet, everyone is 'early')
+    const earlyRegistrations = activeParticipants.filter(u => {
+      if (!gameState.startTime) return true;
+      return u.registrationTime < gameState.startTime;
+    }).length;
+    
     return {
       total: activeParticipants.length,
+      early: earlyRegistrations,
       completed: completedBingo,
       avgProgress: activeParticipants.length ? Math.round((totalCellsCompleted / (activeParticipants.length * 25)) * 100) : 0
     };
-  }, [users]);
+  }, [users, gameState]);
 
   const copyInviteLink = () => {
     navigator.clipboard.writeText(window.location.origin + window.location.pathname);
@@ -73,7 +81,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ gameState, setGameState
   const toggleGame = () => {
     const newState = {
       isStarted: !gameState.isStarted,
-      startTime: !gameState.isStarted ? Date.now() : gameState.startTime
+      startTime: !gameState.isStarted ? (gameState.startTime || Date.now()) : gameState.startTime
     };
     StorageService.saveGameState(newState);
     setGameState(newState);
@@ -161,10 +169,31 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ gameState, setGameState
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={<Users className="w-5 h-5" />} label="Total Players" value={stats.total} color="bg-zinc-900" />
-        <StatCard icon={<Trophy className="w-5 h-5" />} label="Bingo Winners" value={stats.completed} color="bg-red-600" />
-        <StatCard icon={<BarChart3 className="w-5 h-5" />} label="Avg Progress" value={`${stats.avgProgress}%`} color="bg-zinc-900" />
-        <StatCard icon={<Clock className="w-5 h-5" />} label="Game Status" value={gameState.isStarted ? 'Live' : 'Stopped'} color={gameState.isStarted ? 'bg-emerald-500' : 'bg-red-500'} />
+        <StatCard 
+          icon={<Users className="w-5 h-5" />} 
+          label="Total Participants" 
+          value={stats.total} 
+          subValue={`${stats.early} Early Birds`}
+          color="bg-zinc-900" 
+        />
+        <StatCard 
+          icon={<Trophy className="w-5 h-5" />} 
+          label="Bingo Winners" 
+          value={stats.completed} 
+          color="bg-red-600" 
+        />
+        <StatCard 
+          icon={<BarChart3 className="w-5 h-5" />} 
+          label="Avg Progress" 
+          value={`${stats.avgProgress}%`} 
+          color="bg-zinc-900" 
+        />
+        <StatCard 
+          icon={<Clock className="w-5 h-5" />} 
+          label="Game Status" 
+          value={gameState.isStarted ? 'Live' : 'Stopped'} 
+          color={gameState.isStarted ? 'bg-emerald-500' : 'bg-red-500'} 
+        />
       </div>
 
       {/* Tabs */}
@@ -173,7 +202,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ gameState, setGameState
           onClick={() => setActiveTab('participants')}
           className={`pb-4 px-2 font-bold transition-all border-b-2 text-sm uppercase tracking-widest ${activeTab === 'participants' ? 'text-red-600 border-red-600' : 'text-slate-400 border-transparent hover:text-slate-600'}`}
         >
-          Leaderboard
+          Leaderboard & Registry
         </button>
         <button 
           onClick={() => setActiveTab('gallery')}
@@ -187,7 +216,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ gameState, setGameState
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
             <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
-              <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Active Participants</h3>
+              <div className="flex items-center gap-4">
+                <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Active Participants</h3>
+                <span className="bg-slate-200 text-slate-700 text-[10px] font-black px-2 py-0.5 rounded-full">{stats.total} TOTAL</span>
+              </div>
               <div className="relative max-w-xs w-full">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
@@ -204,6 +236,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ gameState, setGameState
                 <thead>
                   <tr className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">
                     <th className="px-6 py-5">Participant Details</th>
+                    <th className="px-6 py-5">Reg Time</th>
                     <th className="px-6 py-5">Grid Completion</th>
                     <th className="px-6 py-5 text-right">Verification</th>
                   </tr>
@@ -211,12 +244,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ gameState, setGameState
                 <tbody className="divide-y divide-slate-100">
                   {filteredUsers.map(u => {
                     const progress = u.grid.filter(c => c.isCompleted).length;
+                    const isEarly = !gameState.startTime || u.registrationTime < gameState.startTime;
                     return (
                       <tr key={u.id} className="hover:bg-slate-50/80 transition-colors group">
                         <td className="px-6 py-5">
                           <div className="flex flex-col">
                             <span className="font-bold text-slate-800 group-hover:text-red-600 transition-colors">{u.name}</span>
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">{u.id} • {u.department}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-5">
+                          <div className="flex flex-col">
+                            <span className="text-xs font-medium text-slate-600">{new Date(u.registrationTime).toLocaleTimeString()}</span>
+                            {isEarly && (
+                              <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Early Bird</span>
+                            )}
                           </div>
                         </td>
                         <td className="px-6 py-5">
@@ -242,6 +284,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ gameState, setGameState
                       </tr>
                     );
                   })}
+                  {filteredUsers.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="px-6 py-20 text-center">
+                        <UserPlus className="w-12 h-12 text-slate-200 mx-auto mb-4" />
+                        <p className="text-slate-400 font-bold uppercase tracking-widest text-sm">No Participants Found</p>
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -378,14 +428,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ gameState, setGameState
   );
 };
 
-const StatCard = ({ icon, label, value, color }: { icon: React.ReactNode, label: string, value: string | number, color: string }) => (
+const StatCard = ({ icon, label, value, subValue, color }: { icon: React.ReactNode, label: string, value: string | number, subValue?: string, color: string }) => (
   <div className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm flex items-center gap-6 hover:shadow-md transition-shadow">
     <div className={`w-14 h-14 ${color} rounded-2xl flex items-center justify-center text-white shadow-xl`}>
       {icon}
     </div>
-    <div>
+    <div className="flex flex-col">
       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{label}</p>
-      <p className="text-3xl font-black text-slate-800 tracking-tight">{value}</p>
+      <p className="text-3xl font-black text-slate-800 tracking-tight leading-none">{value}</p>
+      {subValue && (
+        <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest mt-2">{subValue}</p>
+      )}
     </div>
   </div>
 );
